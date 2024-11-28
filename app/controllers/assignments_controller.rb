@@ -78,7 +78,8 @@ class AssignmentsController < ApplicationController
     @due_date_all = update_nil_dd_deadline_name(@due_date_all)
     @due_date_all = update_nil_dd_description_url(@due_date_all)
     unassigned_rubrics_warning
-    path_warning_and_answer_tag
+    flash_path_warning
+    set_tag_prompt_deployments
     update_assignment_badges
     @assigned_badges = @assignment_form.assignment.badges
     @badges = Badge.all
@@ -408,13 +409,19 @@ class AssignmentsController < ApplicationController
     end
   end
 
-  # flashes an error if an assignment has no directory and sets tag prompting
-  def path_warning_and_answer_tag
+  # flashes an error if an assignment has no directory
+  def flash_path_warning
     if @assignment_form.assignment.directory_path.blank?
       flash.now[:error] = 'You did not specify your submission directory.'
       ExpertizaLogger.error LoggerMessage.new(controller_name, '', 'Submission directory not specified', request)
     end
-    @assignment_form.tag_prompt_deployments = TagPromptDeployment.where(assignment_id: params[:id]) if @assignment_form.assignment.is_answer_tagging_allowed
+  end
+
+  # sets tag_prompt_deployments in assignment_form if tagging of is allowed by getting the tag prompt deployment
+  def set_tag_prompt_deployments
+    if @assignment_form.assignment.is_answer_tagging_allowed
+      @assignment_form.tag_prompt_deployments = TagPromptDeployment.where(assignment_id: params[:id])
+    end
   end
 
   # update values for an assignment's due date when editing
