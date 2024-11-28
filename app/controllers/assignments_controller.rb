@@ -38,6 +38,7 @@ class AssignmentsController < ApplicationController
           assignment_form_params[:assignment][:directory_path] = "assignment_#{assignment_form_params[:assignment][:id]}"
         end
 
+
         assignment_form_params[:assignment_questionnaire].each do |cur_questionnaire|
           cur_questionnaire[:assignment_id] = assignment_created.id.to_s
         end
