@@ -28,40 +28,18 @@ class AssignmentsController < ApplicationController
     @assignment_form = AssignmentForm.new(assignment_form_params)
     if params[:button]
       # E2138 issue #3
-      assignment_by_name = Assignment.find_by(name: @assignment_form.assignment.name, course_id: @assignment_form.assignment.course_id)
+      name = @assignment_form.assignment.name
       dir_path = assignment_form_params[:assignment][:directory_path]
-      find_existing_directory = Assignment.find_by(directory_path: dir_path, course_id: @assignment_form.assignment.course_id)
-      if !assignment_by_name && !find_existing_directory && @assignment_form.save # No existing names/directories
+      course_id = @assignment_form.assignment.course_id
+
+      is_conflict = Assignment.record_exists?(name: name, directory_path: dir_path, course_id: course_id)
+
+      if !is_conflict[:by_name] && !is_conflict[:by_directory] && @assignment_form.save
         @assignment_form.create_assignment_node
-        assignment_created = Assignment.find(@assignment_form.assignment.id)
-        assignment_form_params[:assignment][:id] = assignment_created.id.to_s
-        if assignment_form_params[:assignment][:directory_path].blank?
-          assignment_form_params[:assignment][:directory_path] = "assignment_#{assignment_form_params[:assignment][:id]}"
-        end
-
-
-        assignment_form_params[:assignment_questionnaire].each do |cur_questionnaire|
-          cur_questionnaire[:assignment_id] = assignment_created.id.to_s
-        end
-
-        assignment_form_params[:due_date].each do |cur_due|
-          cur_due[:parent_id] = assignment_created.id.to_s
-        end
-
-        @assignment_form.update(assignment_form_params, current_user)
-        aid = Assignment.find(@assignment_form.assignment.id).id
-        ExpertizaLogger.info "Assignment created: #{@assignment_form.as_json}"
-        redirect_to edit_assignment_path aid
-        undo_link("Assignment \"#{@assignment_form.assignment.name}\" has been created successfully. ")
-        return
       else
         flash[:error] = 'Failed to create assignment.'
-        if assignment_by_name
-          flash[:error] << content_tag(:br) +'  ' + @assignment_form.assignment.name + ' already exists as an assignment name'
-        end
-        if find_existing_directory
-          flash[:error] << content_tag(:br) + '  ' + dir_path + ' already exists as a submission directory name'
-        end
+        flash[:error] << content_tag(:br) + " #{name} already exists as an assignment name" if is_conflict[:by_name]
+        flash[:error] << content_tag(:br) + " #{dir_path} already exists as a submission directory name" if is_conflict[:by_directory]
         redirect_to '/assignments/new?private=1'
       end
     else
@@ -197,6 +175,26 @@ class AssignmentsController < ApplicationController
   end
 
   private
+
+  # initialize checkboxes related data for view
+  def initialize_checkboxes
+    @due_date_nameurl_not_empty = false
+    @due_date_nameurl_not_empty_checkbox = false
+    @metareview_allowed
+    @metareview_allowed_checkbox = false
+    @signup_allowed = false
+    @signup_allowed_checkbox = false
+    @drop_topic_allowed = false
+    @drop_topic_allowed_checkbox = false
+    @team_formation_allowed = false
+    @team_formation_allowed_checkbox = false
+  end
+
+  # initialize participants and team counts
+  def initialize_participant_team_counts
+    @participants_count = @assignment_form.assignment.participants.size
+    @teams_count = @assignment_form.assignment.teams.size
+  end
 
   # check whether rubrics are set before save assignment
   def list_unassigned_rubrics
@@ -338,18 +336,8 @@ class AssignmentsController < ApplicationController
 
     @assignment_questionnaires = AssignmentQuestionnaire.where(assignment_id: params[:id])
     @due_date_all = AssignmentDueDate.where(parent_id: params[:id])
-    @due_date_nameurl_not_empty = false
-    @due_date_nameurl_not_empty_checkbox = false
-    @metareview_allowed = false
-    @metareview_allowed_checkbox = false
-    @signup_allowed = false
-    @signup_allowed_checkbox = false
-    @drop_topic_allowed = false
-    @drop_topic_allowed_checkbox = false
-    @team_formation_allowed = false
-    @team_formation_allowed_checkbox = false
-    @participants_count = @assignment_form.assignment.participants.size
-    @teams_count = @assignment_form.assignment.teams.size
+    initialize_checkboxes
+    initialize_participant_team_counts
   end
 
   # populates assignment deadlines in the form if they are staggered
@@ -475,13 +463,13 @@ class AssignmentsController < ApplicationController
 
   # sets assignment time zone if not specified and flashes a warning
   def nil_timezone_update
-    if current_user.timezonepref.nil?
-      parent_id = current_user.parent_id
-      parent_timezone = User.find(parent_id).timezonepref
-      flash[:error] = 'We strongly suggest that instructors specify their preferred timezone to'\
-          ' guarantee the correct display time. For now we assume you are in ' + parent_timezone
-      current_user.timezonepref = parent_timezone
-    end
+    return unless current_user.timezonepref.nil?
+
+    parent_id = current_user.parent_id
+    parent_timezone = User.find(parent_id).timezonepref
+    flash[:error] = 'We strongly suggest that instructors specify their preferred timezone to '\
+      'guarantee the correct display time. For now, we assume you are in ' + parent_timezone
+    current_user.timezonepref = parent_timezone
   end
 
   # updates an assignment's attributes and flashes a notice on the status of the save
